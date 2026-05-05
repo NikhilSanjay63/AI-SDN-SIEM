@@ -4,7 +4,8 @@ from ryu.base import app_manager
 from ryu.controller import ofp_event
 from ryu.controller.handler import MAIN_DISPATCHER, CONFIG_DISPATCHER, set_ev_cls
 from ryu.ofproto import ofproto_v1_3
-from ryu.lib.packet import packet, ethernet, ether_types
+from ryu.lib.packet import packet, ethernet, ether_types, ipv4
+import redis
 
 
 class PrimaryController(app_manager.RyuApp):
@@ -14,6 +15,7 @@ class PrimaryController(app_manager.RyuApp):
     Role:
     - Pure L2 learning switch
     - Handles NORMAL traffic only
+    - Checks Redis for blocked IPs
     - SecurityController may override using higher-priority rules
     """
 
@@ -22,6 +24,7 @@ class PrimaryController(app_manager.RyuApp):
     def __init__(self, *args, **kwargs):
         super(PrimaryController, self).__init__(*args, **kwargs)
         self.mac_to_port = {}
+        self.redis = redis.Redis(host='redis-db', port=6379, db=0)
         self.logger.info("[Primary] Traffic Controller Online")
 
     # ---------------- SWITCH INIT ----------------
@@ -89,6 +92,18 @@ class PrimaryController(app_manager.RyuApp):
         # Ignore LLDP
         if eth.ethertype == ether_types.ETH_TYPE_LLDP:
             return
+
+        # Check if source IP is blocked
+        ip_pkt = pkt.get_protocol(ipv4.ipv4)
+        if ip_pkt:
+            src_ip = ip_pkt.src
+            if self.redis.exists(f"blacklist:{src_ip}"):
+                self.logger.warning("[Primary] Dropping packet from blacklisted IP: %s", src_ip)
+                # Install drop rule
+                match = parser.OFPMatch(eth_type=0x0800, ipv4_src=src_ip)
+                actions = []
+                self.add_flow(datapath, priority=50, match=match, actions=actions)
+                return
 
         dst = eth.dst
         src = eth.src

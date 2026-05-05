@@ -26,14 +26,18 @@ RUN pip install --no-cache-dir \
     numpy==1.26.4 \
     scikit-learn==1.6.1 \
     tensorflow \
-    joblib
+    joblib \
+    redis
 
-# Copy application files
-COPY app.py .
-COPY feature_extractor.py .
-COPY model_v2.tflite .
-COPY model_rf.pkl .
-COPY scaler_insdn.json .
+# Copy application files (context is now sdn-service/)
+COPY ai-service/app.py .
+COPY ai-service/feature_extractor.py .
+COPY ai-service/model_v2.tflite .
+COPY ai-service/model_rf.pkl .
+COPY ai-service/scaler_insdn.json .
+
+# Copy tests
+COPY tests/ /app/tests/
 
 EXPOSE 5000
 

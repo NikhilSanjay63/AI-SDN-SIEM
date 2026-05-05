@@ -1,48 +1,108 @@
+# docker-compose.yml  —  IMPROVED VERSION
+# ==========================================
+# Multi-controller architecture:
+#   - primary-controller  : L2 learning switch on port 6633 (fast path)
+#   - security-controller : AI-backed security on port 6634 (inspection path)
+# Both controllers are fully independent Docker services.
+# Switches connect to BOTH using multi-table or dual-connection topology.
+#
+# Redis is now used by BOTH the security controller and the AI service:
+#   - security-controller : persists per-flow state (survives restarts)
+#   - ai-service          : maintains IP blacklist (survives restarts)
+
 services:
-  # ============================
-  # SDN CONTROLLER (Ryu)
-  # ============================
-  sdn-controller:
+
+  # ══════════════════════════════════════════════════
+  # PRIMARY CONTROLLER  —  Fast Path (L2 Learning)
+  # Port 6633 (standard OpenFlow)
+  # ══════════════════════════════════════════════════
+  primary-controller:
     build: .
-    container_name: sdn-controller
+    container_name: primary-controller
     command: >
       ryu-manager
       --observe-links
+      --ofp-tcp-listen-port 6633
       controllers.primary_controller
+    volumes:
+      - ./controllers:/app/controllers
+    environment:
+      - PYTHONPATH=/app
+    ports:
+      - "6633:6633"        # OpenFlow — primary controller
+    networks:
+      - sdn-net
+    restart: unless-stopped
+    platform: linux/amd64
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('localhost',6633)); s.close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ══════════════════════════════════════════════════
+  # SECURITY CONTROLLER  —  Inspection Path (AI-backed)
+  # Port 6634 (dedicated security OpenFlow port)
+  # ══════════════════════════════════════════════════
+  security-controller:
+    build: .
+    container_name: security-controller
+    command: >
+      ryu-manager
+      --observe-links
+      --ofp-tcp-listen-port 6634
       controllers.security_controller
     volumes:
       - ./controllers:/app/controllers
     environment:
       - PYTHONPATH=/app
     ports:
-      - "6633:6633"        # OpenFlow
+      - "6634:6634"        # OpenFlow — security controller (dedicated port)
     networks:
       - sdn-net
     depends_on:
-      - ai-service
-      - redis-db
+      ai-service:
+        condition: service_healthy
+      redis-db:
+        condition: service_healthy
     restart: unless-stopped
     platform: linux/amd64
 
-  # ============================
-  # AI SERVICE (WITH SIEM LOGGING)
-  # ============================
+  # ══════════════════════════════════════════════════
+  # AI SERVICE  —  CNN-BiLSTM + Random Forest
+  # Now serves /analyze_flow AND /analyze_batch
+  # ══════════════════════════════════════════════════
   ai-service:
-    build: ./ai-service
+    build:
+      context: .
+      dockerfile: ai-service/Dockerfile
     image: ai-service:local
     container_name: ai-service
     ports:
       - "5050:5000"        # AI REST API
     volumes:
-      - ./logs:/var/log    # 🔥 SIEM EVENT LOG MOUNT
+      - ../logs:/var/log    # SIEM event log (Fluent Bit tails this)
     networks:
       - sdn-net
+    depends_on:
+      redis-db:
+        condition: service_healthy
     restart: unless-stopped
     platform: linux/amd64
+    environment:
+      - REDIS_HOST=redis-db
+      - REDIS_PORT=6379
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
-  # ============================
-  # REDIS (Blacklist / State)
-  # ============================
+  # ══════════════════════════════════════════════════
+  # REDIS  —  Dual role:
+  #   1. Flow state store  (security-controller)
+  #   2. IP blacklist      (ai-service)
+  # ══════════════════════════════════════════════════
   redis-db:
     image: redis:alpine
     container_name: redis-db
@@ -51,11 +111,24 @@ services:
     networks:
       - sdn-net
     restart: unless-stopped
+    volumes:
+      - redis-data:/data   # persist blacklist + flow state across full stack restarts
+    command: redis-server --appendonly yes  # AOF persistence
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
-# ============================
+# ══════════════════════════════════════════════════
+# VOLUMES
+# ══════════════════════════════════════════════════
+volumes:
+  redis-data:
+
+# ══════════════════════════════════════════════════
 # NETWORK
-# ============================
+# ══════════════════════════════════════════════════
 networks:
   sdn-net:
     driver: bridge
-
