@@ -97,7 +97,7 @@ def write_siem_event(src_ip, dst_ip, attack_type, confidence, action, model_used
         logging.error("❌ Failed to write SIEM event: %s", e)
 
 # ══════════════════════════════════════════════════════
-#  5. REDIS BLACKLIST HELPERS
+#  5. REDIS HELPERS
 # ══════════════════════════════════════════════════════
 def is_blacklisted(ip: str) -> bool:
     """Return True if this IP is already in the Redis block-list."""
@@ -111,6 +111,24 @@ def add_to_blacklist(ip: str):
         return
     redis_client.setex(f"blacklist:{ip}", BLACKLIST_TTL, "1")
     logging.info("🔴 IP added to Redis blacklist: %s (TTL=%ss)", ip, BLACKLIST_TTL)
+
+def check_port_scan(src_ip: str, dst_port: int) -> bool:
+    """
+    Stateful Port Scan Detection:
+    Tracks unique destination ports per source IP in Redis.
+    Returns True if an IP hits > 15 unique ports within 60 seconds.
+    """
+    if not use_redis:
+        return False
+    
+    key = f"ports:{src_ip}"
+    redis_client.sadd(key, dst_port)
+    redis_client.expire(key, 60)  # Reset window every 60s
+    
+    count = redis_client.scard(key)
+    if count > 15:
+        return True
+    return False
 
 # ══════════════════════════════════════════════════════
 #  6. LOAD MODELS & SCALER
@@ -241,14 +259,34 @@ def _infer_single(flow_data: dict) -> dict:
 
     if prediction == 1:
         pkt_rate = feature_vector[0][6]
+        iat_mean = feature_vector[0][1]
+        tot_len  = feature_vector[0][9]
         syn_cnt  = feature_vector[0][14]
+        rst_cnt  = feature_vector[0][15]
+        psh_cnt  = feature_vector[0][16]
+        protocol = feature_vector[0][19]
+        dst_port = feature_vector[0][20]
 
-        if pkt_rate > 1000:
-            reason = "High Packet Rate (DoS)"
-        elif syn_cnt > 50:
-            reason = "SYN Flood"
+        # 1. Check for Stateful Port Scanning (Independent of AI label)
+        if check_port_scan(src_ip, dst_port):
+            reason = "Active Port Scan"
+        # 2. Heuristic Refinement for AI-detected attacks
+        elif protocol == 17 and pkt_rate > 1000:
+            reason = "UDP Flood (DoS)"
+        elif protocol == 6 and syn_cnt > 50:
+            reason = "TCP SYN Flood"
+        elif protocol == 6 and rst_cnt > 50:
+            reason = "TCP RST Flood"
+        elif protocol == 6 and psh_cnt > 50:
+            reason = "TCP PSH Flood"
+        elif protocol == 6 and iat_mean > 2.0 and tot_len < 500:
+            reason = "Slow-and-Low (Slowloris)"
+        elif dst_port in [21, 22, 23, 3389]:
+            reason = "Brute Force / Exploit Attempt"
+        elif pkt_rate > 1000:
+            reason = "High Rate DoS (Generic)"
         else:
-            reason = "Malicious Flow Pattern"
+            reason = "Anomalous Malicious Pattern"
 
         mitigation = {
             "action":       "BLOCK",
