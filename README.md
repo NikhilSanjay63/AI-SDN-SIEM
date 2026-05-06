@@ -90,4 +90,7 @@ For detailed classification logic, see [ATTACK_CLASSIFICATION.md](./ATTACK_CLASS
 ---
 
 ## 👨‍💻 Author
+Febin A
+Nikhil Sanjay
+T A Narayanan
 Vishnu P U
