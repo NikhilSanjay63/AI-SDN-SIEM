@@ -74,31 +74,39 @@ services:
   # Now serves /analyze_flow AND /analyze_batch
   # ══════════════════════════════════════════════════
   ai-service:
-    build:
-      context: .
-      dockerfile: ai-service/Dockerfile
-    image: ai-service:local
-    container_name: ai-service
-    ports:
-      - "5050:5000"        # AI REST API
-    volumes:
-      - ../logs:/var/log    # SIEM event log (Fluent Bit tails this)
-    networks:
-      - sdn-net
-    depends_on:
-      redis-db:
-        condition: service_healthy
-    restart: unless-stopped
-    platform: linux/amd64
-    environment:
-      - REDIS_HOST=redis-db
-      - REDIS_PORT=6379
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+  build:
+    context: ./ai-service
+    dockerfile: Dockerfile
+
+  image: ai-service:local
+  container_name: ai-service
+
+  ports:
+    - "5050:5000"
+
+  volumes:
+    - ./logs:/var/log   # ✅ safer relative path
+
+  networks:
+    - sdn-net
+
+  depends_on:
+    redis-db:
+      condition: service_healthy
+
+  restart: unless-stopped
+  platform: linux/amd64
+
+  environment:
+    - REDIS_HOST=redis-db
+    - REDIS_PORT=6379
+
+  healthcheck:
+    test: ["CMD-SHELL", "curl -f http://localhost:5000/health || exit 1"]
+    interval: 30s
+    timeout: 10s
+    retries: 5
+    start_period: 60s
 
   # ══════════════════════════════════════════════════
   # REDIS  —  Dual role:
