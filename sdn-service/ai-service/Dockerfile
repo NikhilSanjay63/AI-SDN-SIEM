@@ -29,7 +29,7 @@ RUN pip install --no-cache-dir \
     joblib \
     redis
 
-# Copy application files (context is now sdn-service/)
+# Copy application files (context is sdn-service/)
 COPY ai-service/app.py .
 COPY ai-service/feature_extractor.py .
 COPY ai-service/model_v2.tflite .
@@ -41,4 +41,5 @@ COPY tests/ /app/tests/
 
 EXPOSE 5000
 
+# Use gunicorn for faster startup signal handling
 CMD ["python", "app.py"]

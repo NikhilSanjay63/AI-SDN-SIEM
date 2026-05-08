@@ -34,6 +34,15 @@ logging.basicConfig(
 app = flask.Flask(__name__)
 
 # ══════════════════════════════════════════════════════
+#  SILENCE HEALTH CHECK LOGS
+# ══════════════════════════════════════════════════════
+class HealthCheckFilter(logging.Filter):
+    def filter(self, record):
+        return "/health" not in record.getMessage()
+
+logging.getLogger("werkzeug").addFilter(HealthCheckFilter())
+
+# ══════════════════════════════════════════════════════
 #  2. CONSTANTS
 # ══════════════════════════════════════════════════════
 MODEL_DL_PATH = "model_v2.tflite"
