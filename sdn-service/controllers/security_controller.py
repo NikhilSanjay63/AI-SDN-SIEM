@@ -84,8 +84,9 @@ class SecurityController(app_manager.RyuApp):
 
         # Background thread flushes on timeout even when batch isn't full
         self._flush_thread = threading.Thread(
-            target=self._batch_flush_loop, daemon=True
+            target=self._batch_flush_loop
         )
+        self._flush_thread.daemon = True
         self._flush_thread.start()
 
         self.logger.info("[Security] Controller started  (port=%s, batch=%s)", LISTEN_PORT, BATCH_SIZE)

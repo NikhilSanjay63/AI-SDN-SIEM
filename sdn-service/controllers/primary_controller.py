@@ -97,7 +97,7 @@ class PrimaryController(app_manager.RyuApp):
         ip_pkt = pkt.get_protocol(ipv4.ipv4)
         if ip_pkt:
             src_ip = ip_pkt.src
-            if self.redis.exists(f"blacklist:{src_ip}"):
+            if self.redis.exists("blacklist:{}".format(src_ip)):
                 self.logger.warning("[Primary] Dropping packet from blacklisted IP: %s", src_ip)
                 # Install drop rule
                 match = parser.OFPMatch(eth_type=0x0800, ipv4_src=src_ip)
