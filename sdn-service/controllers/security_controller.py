@@ -107,7 +107,14 @@ class SecurityController(app_manager.RyuApp):
                 return self._new_flow()
             return json.loads(raw)
         else:
-            return self._local_flows.get(fid, self._new_flow())
+            # FIX: previously used dict.get() with a default of _new_flow(),
+            # which created a blank dict on every call for unseen flows but
+            # never stored it. The next packet for the same flow got another
+            # blank dict, so flow state never accumulated in fallback mode.
+            # Now we check explicitly and store the blank dict immediately.
+            if fid not in self._local_flows:
+                self._local_flows[fid] = self._new_flow()
+            return self._local_flows[fid]
 
     def _save_flow(self, fid, flow):
         """Persist flow state to Redis (or local dict) with TTL."""
