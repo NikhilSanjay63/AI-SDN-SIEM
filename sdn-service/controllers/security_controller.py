@@ -284,7 +284,6 @@ class SecurityController(app_manager.RyuApp):
             self.logger.error("[Batch ERROR] %s", e)
 
     def _build_payload(self, flow):
-        """Translate internal flow dict to the JSON schema expected by app.py."""
         iat = flow["iat"]
         iat_mean = sum(iat) / len(iat) if iat else 0.0
         iat_std  = math.sqrt(
@@ -297,8 +296,19 @@ class SecurityController(app_manager.RyuApp):
 
         duration = (flow["last"] - flow["start"]) if (flow["last"] and flow["start"]) else 1e-6
 
+        # FIX: use a unique 5-tuple flow_id instead of just src_ip
+        # Previously "flow_id": flow["src_ip"] caused two flows from the same
+        # source IP to share an LSTM buffer in Redis, corrupting inference for both.
+        flow_id = "{}-{}-{}-{}-{}".format(
+            flow["src_ip"],
+            flow.get("dst_ip", "UNKNOWN"),
+            flow["src_port"],
+            flow["dst_port"],
+            flow["protocol"]
+        )
+
         return {
-            "flow_id":       flow["src_ip"],
+            "flow_id":       flow_id,
             "src_ip":        flow["src_ip"],
             "dst_ip":        flow.get("dst_ip", "UNKNOWN"),
             "Flow Duration": duration,

@@ -29,11 +29,17 @@ services:
     environment:
       - PYTHONPATH=/app
     ports:
-      - "6633:6633"        # OpenFlow — primary controller
+      - "6633:6633"
     networks:
       - sdn-net
     restart: unless-stopped
     platform: linux/amd64
+    # FIX: added depends_on redis-db so the controller doesn't attempt
+    # a Redis connection before the service is ready, eliminating the
+    # ConnectionRefusedError crash on cold start.
+    depends_on:
+      redis-db:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('localhost',6633)); s.close()"]
       interval: 10s
